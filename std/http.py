@@ -1,25 +1,50 @@
-import json
-import requests
+import json, requests
+import regex as re
 from json.decoder import JSONDecodeError
+from json import loads
 
-def json_post(url, data, headers={}):
+def iter_lines(response):
+    for line in response.iter_lines():
+        line = line.decode('utf-8')
+        if line.startswith('data:'):
+            line = line[5:]
+            try:
+                yield loads(line)
+            except JSONDecodeError:
+                yield line
+
+def json_post(url, json, headers={}, stream=False):
     try:
         headers['Content-Type'] = "application/json"
-        text = requests.post(
+        if stream:
+            headers['Accept'] = 'text/event-stream'
+        response = requests.post(
             url,
-            data=json.dumps(data, ensure_ascii=False).encode(encoding='utf-8'),
-            headers=headers).text
+            json=json,
+            headers=headers,
+            stream=stream
+        )
+        if stream:
+            return iter_lines(response)
+        text = response.text
         try:
-            return json.loads(text)
+            return loads(text)
         except JSONDecodeError:
             return text
     except Exception as e:
         return e
 
 
-def json_post_curl(url, data):
-    data = json.dumps(data, ensure_ascii=False)#.encode(encoding='utf-8')
-    return f"curl -H 'Content-Type: application/json' -X POST '{url}' -d'{data}'"
+def curl_json_post(url, data):
+    data = json.dumps(data, ensure_ascii=False)
+    data = re.sub(r'(?<!\\)[\\]"', r"\\u0022", data)
+    data = re.sub(r'(?<!\\)"', '\\"', data)
+    data = re.sub(r"(?<!\\)'", r"\\u0027", data)
+    data = re.sub(r"(?<!\\)(([\\][\\])+)(?!\\)", r"\1\1", data)
+    data = re.sub(r"[$]", "\\$", data)
+    data = re.sub(r"[`]", "\\`", data)
+
+    return f"curl -H 'Content-Type: application/json' -d '{data}' -X POST '{url}'"
     
 def get(url, **kwargs):
     import regex as re
@@ -35,7 +60,7 @@ def get(url, **kwargs):
 
     text = requests.get(url).text
     try:
-        return json.loads(text)
+        return loads(text)
     except JSONDecodeError:
         return text
     
@@ -49,7 +74,7 @@ def form_post(url, data):
         data=data,
         headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}).text
     try:
-        return json.loads(text)
+        return loads(text)
     except JSONDecodeError:
         return text
 
@@ -60,7 +85,7 @@ def octet_stream_post(url, filename, data):
         data=data,
         headers={"Content-Type": "application/octet-stream", 'filename': filename, 'Content-Length': str(len(data))}).text
     try:
-        return json.loads(text)
+        return loads(text)
     except JSONDecodeError:
         return text
 

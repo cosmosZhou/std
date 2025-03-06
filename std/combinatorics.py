@@ -1,4 +1,7 @@
 import random
+from std import prod
+
+
 def HeapPermutation(k, A):
     '''
     https://en.wikipedia.org/wiki/Heap%27s_algorithm
@@ -82,7 +85,6 @@ def generate_combination(n, k):
         if x[0] > n - k:
             break
 
-from functools import reduce
 
 def sigmar(x, k):
     if k == 0:
@@ -91,7 +93,7 @@ def sigmar(x, k):
         return sum(x)
     sigmar = 0
     for indices in generate_combination(len(x), k):
-        sigmar += reduce(lambda x, y: x * y, (x[i] for i in indices))
+        sigmar += prod((x[i] for i in indices))
     return sigmar
 
 def random_combination(n, k, reverse=True):

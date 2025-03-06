@@ -1,23 +1,27 @@
-import numpy
+import numpy, std
 from math import sqrt
 
 
 # https://www.inf.fh-flensburg.de/lang/algorithmen/pattern/sundayen.htm
 # https://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_string-search_algorithm
 # https://www.jianshu.com/p/2594d312cefd
-def sunday(haystack, needle):
+def sunday(haystack, needle, haystackLength=None):
     
     needelLength = len(needle)
     
-    haystackLength = len(haystack)
+    if haystackLength:
+        haystackLength = min(len(haystack), haystackLength)
+    else:
+        haystackLength = len(haystack)
     
-    dic = {v:needelLength - k for k, v in enumerate(needle)}
+    # If the needle contains duplicate characters, the dictionary will only store the last occurrence of each character. When a duplicate key is encountered, the previous value for that key is overwritten.
+    dic = {v: needelLength - k for k, v in enumerate(needle)}
     
     end = needelLength
     
     while end <= haystackLength:
         begin = end - needelLength
-        if haystack[begin:end] == needle:
+        if haystack[begin: end] == needle:
             return begin
 
         if end >= haystackLength:
@@ -30,25 +34,55 @@ def sunday(haystack, needle):
         end += offset
 
     return -1
-    
 
-def repetition_penalty(string, max_length=16):
+
+def match_repetition(s, ignores):
+    return all(ch in ignores for ch in s)
+
+
+def length_coefficient(length):
+    # in the range of [0, 1]
+    return (1 + numpy.tanh(0.4 * length - 6)) / 2
+
+def repetition_penalty(string, max_length=64, ignores=()):
+    min_length = 3
+    coefficient = [length_coefficient(length) for length in range(0, max_length)]
     repetition_penalty = numpy.zeros((len(string), max_length))
+    lookaheads = 5
     for i in range(1, len(string)):
-        for index in range(max_length):
+        for index in range(min_length, max_length):
             length = index + 1
             end = i + 1
-            beg = end - length * 2
+            beg = end - length
             if beg >= 0:
-                mid = beg + length
-                if string[beg:mid] == string[mid:end]:
-                    repetition_penalty[i][index] = repetition_penalty[i - length][index] + 1
+                s = string[beg: end]
+                if ignores and match_repetition(s, ignores):
+                    continue
+                find = string[end : end + length * lookaheads].find(s)
+                if find >= 0:
+                    end += find + length
+                    assert string[end - length: end] == s
+                    repetition_penalty[end - 1][index] = (repetition_penalty[i][index] + 1 - (find / (length * lookaheads)) ** 2) * (1 + coefficient[index] / sqrt(max_length))
             else:
                 break
 
-    repetition_penalty = repetition_penalty.max(0)
+    penalty = repetition_penalty.max(0)
     # at least four consecutive characters are considered as repetitive
-    return sum(penalty ** 2 * (1 + numpy.tanh(index - max_length / 5)) / 2 for index, penalty in enumerate(repetition_penalty) if index >= 3) / sqrt(len(string))
+    args = [penalty ** 2 * coefficient[index] for index, penalty in enumerate(penalty) if index >= min_length]
+    penalty = sum(args) / sqrt(len(string))
+    penalty = int(penalty)
+    result = {"score" : -penalty}
+    if penalty >= 1:
+        index = std.argmax(args) + min_length
+        # length = index + 1
+        end = repetition_penalty[:, index].argmax()
+        # end = end + 1
+        error = string[end - index: end + 1]
+        result['error'] = error
+        count = string.count(error)
+        result['count'] = count
+        assert count > 1
+    return result
 
 
 if __name__ == '__main__':

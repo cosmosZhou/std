@@ -1,17 +1,42 @@
 # -*- coding: UTF-8 -*-
 import regex as re
 
-Han1 = re.compile('\p{Han}')
+Han = re.compile('\p{Han}')
 Han2 = re.compile('\p{Han}{2,}')
+
+Hiragana = re.compile('\p{Hiragana}')
+Katakana = re.compile('\p{Katakana}')
+
+Francais = re.compile('[éèàùçœæ]')
+German = re.compile('[äöüß]')
+
+Arabic = re.compile('\p{Arabic}')
+
+Hangul = re.compile('\p{Hangul}')
 
 def detect_language(text, fast=True):
     if fast:
+        if Hiragana.search(text):
+            return 'jp'
+
         if len(text) <= 2:
-            if Han1.search(text):
+            if Han.search(text):
                 return 'cn'
         else:
             if Han2.search(text):
                 return 'cn'
+
+        if Francais.search(text):
+            return 'fr'
+
+        if German.search(text):
+            return 'de'
+
+        if Arabic.search(text):
+            return 'ar'
+
+        if Hangul.search(text):
+            return 'kr'
         return 'en'
 
     if Han2.match(text):
@@ -25,7 +50,7 @@ def detect_language(text, fast=True):
         position_weight = (i - mid + 0.01) / mid
         position_weight = position_weight ** 2
         if re.compile('\p{Letter}').match(ch):
-            if Han1.match(ch):
+            if Han.match(ch):
                 cn += 8 * position_weight
             else:
                 en += position_weight

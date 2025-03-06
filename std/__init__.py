@@ -2,6 +2,7 @@ import os, json, time, inspect, functools, sys, signal, types, importlib.util
 from enum import Enum, unique
 from tqdm import tqdm
 from os.path import dirname
+from functools import reduce
 
 
 def is_Windows():
@@ -390,8 +391,12 @@ def equal_range(arr, value, compareTo=None, key=None):
 
 
 def computed(prop):
+    cls = cached if prop.__code__.co_varnames[0] == 'self' else cached_cls
+    
+    def computed(prop):
+        return cls(prop.fget)
 
-    @(cache if prop.__code__.co_varnames[0] == 'self' else cache_cls)
+    @computed
     @property
     def func(self):
         return prop(self)
@@ -400,41 +405,31 @@ def computed(prop):
     return func
 
 
-def cache(prop):
-    if isinstance(prop, property):
+class cached(property):
 
-        class cached(property):
-
-            def __get__(self, obj, objtype=None):
-                name = self.fget.__name__
-                try:
-                    return obj.__dict__[name]
-                except KeyError:
-                    value = self.fget(obj)
-                    obj.__dict__[name] = value
-                    return value
-
-        return cached(prop.fget)
+    def __get__(self, obj, objtype=None):
+        name = self.fget.__name__
+        try:
+            return obj.__dict__[name]
+        except KeyError:
+            value = self.fget(obj)
+            obj.__dict__[name] = value
+            return value
 
 
-def cache_cls(prop):
-    if isinstance(prop, property):
+class cached_cls(property):
 
-        class cached(property):
-
-            def __get__(self, obj, objtype=None):
-                name = self.fget.__name__
-                try:
-                    return obj.__cache__[name]
-                except AttributeError:
-                    obj.__cache__ = {}
-                except KeyError:
-                    ...
-                value = self.fget(obj)
-                obj.__cache__[name] = value
-                return value
-
-        return cached(prop.fget)
+    def __get__(self, obj, objtype=None):
+        name = self.fget.__name__
+        try:
+            return obj.__cache__[name]
+        except AttributeError:
+            obj.__cache__ = {}
+        except KeyError:
+            ...
+        value = self.fget(obj)
+        obj.__cache__[name] = value
+        return value
 
 
 class cached_property:
@@ -645,6 +640,8 @@ def setitem(data, *args):
                     element = []
                 elif isinstance(data, dict):
                     element = type(data)()
+                elif parentData is None:
+                    element = [] if isinstance(indices[i + 1], int) else {}
                 else:
                     assert isinstance(parentData, dict)
                     element = type(parentData)()
@@ -677,7 +674,9 @@ def __set__(*cls):
                 elif isinstance(func, staticmethod):
                     assert getattr(cls, __name__) is func.__func__
                 else:
-                    assert getattr(cls, __name__) is func
+                    ...
+                    # assert getattr(cls, __name__) is func:
+                        
                 return func
         else:
             # cls is an object, thus we use func.__get__(cls) to create a method for it.
@@ -873,7 +872,7 @@ def flatten(data):
     return result
 
 
-def is_same(list):
+def is_uniform(list):
     if isinstance(list, types.GeneratorType):
         list = [*list]
     for i in range(1, len(list)):
@@ -1044,7 +1043,7 @@ def parse_kwargs(argv, args, kwargs):
     # print('kwargs =', kwargs)
     def get_val(value):
         try:
-            return eval(value)
+            return json.loads(value)
         except:
             return value
 
@@ -1135,6 +1134,10 @@ def exec_generator(generator, output):
         except StopIteration as e:
             # capture the return value from the generator
             return e.value
+
+
+def prod(iterable):
+    return reduce(lambda x, y: x * y, iterable)
 
 
 if __name__ == '__main__':

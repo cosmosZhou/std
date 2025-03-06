@@ -77,7 +77,7 @@ def randomize(data, count):
     from std.combinatorics import random_combination
     for i in random_combination(len(data) - 1, min(count, len(data) - 1)):
         assert len(data) - i > 1
-        j = random.randrange(1, len(data) - i) + i # j > i
+        j = random.randrange(i + 1, len(data)) # j > i
         data[i], data[j] = data[j], data[i]
 
     return data
@@ -91,7 +91,7 @@ def sample(data, count):
     if count <= len(data):
         for i in range(count):
             if 1 < len(data) - i:
-                j = random.randrange(1, len(data) - i) + i # j > i
+                j = random.randrange(i + 1, len(data)) # j > i
                 data[i], data[j] = data[j], data[i]
 
         if count < len(data):

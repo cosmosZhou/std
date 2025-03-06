@@ -1,4 +1,6 @@
 import mysql.connector, std, re, random, time, os
+from collections import defaultdict
+
 
 def format_table(table):
     if m := re.match('(\w+)\.(\S+)$', table):
@@ -27,7 +29,7 @@ export MYSQL_HOST=yourIPAddress
         self.host = os.environ.get('MYSQL_HOST', '127.0.0.1')
         self.port = os.environ.get('MYSQL_PORT', '3306')
         self.database = os.environ.get('MYSQL_DATABASE', 'corpus')
-        self.charset = os.environ.get('MYSQL_CHARSET', 'utf8')
+        self.charset = os.environ.get('MYSQL_CHARSET', 'utf8mb4')
         try:
             self.conn = mysql.connector.connect(**self.kwargs)
         except mysql.connector.errors.ProgrammingError as err:
@@ -311,9 +313,7 @@ class MySQLConnector(Database):
         char_length = [256] * len(desc)
         dtype = [None] * len(desc)
         for i, (Field, Type, *_) in enumerate(desc):
-            dtype[i] = Type
-            
-            Type = str(Type, encoding="utf-8")
+            dtype[i] = Type = str(Type, encoding="utf-8")
             if Field == 'training':
                 has_training_field = True
                 
@@ -330,7 +330,7 @@ class MySQLConnector(Database):
                 char_length[i] = int(m[1])
                 
         truncate = kwargs.get('truncate')
-        def create_csv(lines, step):
+        def create_tsv(lines, step):
             import tempfile
             folder = tempfile.gettempdir()
                 
@@ -340,8 +340,8 @@ class MySQLConnector(Database):
                 mkdir(dirname(folder + '/' + table))
 
             for i in range(0, len(lines), step):
-                csv = folder + '/%s-%d.csv' % (table, i)
-                with open(csv, 'w', encoding='utf8') as file:
+                tsv = folder + '/%s-%d.tsv' % (table, i)
+                with open(tsv, 'w', encoding='utf8') as file:
                     for args in lines[i:i + step]:
                         if isinstance(args, tuple):
                             args = [*args]
@@ -407,19 +407,19 @@ class MySQLConnector(Database):
                             else:
                                 print('\t'.join(args), file=file)
                             
-                std.eol_convert(csv)
-                yield csv
+                std.eol_convert(tsv)
+                yield tsv
                 
         rowcount = 0
-        for csv in create_csv(array, step):
-            rowcount += self.load_data_from_csv(table, csv, delete=delete, ignore=ignore, **kwargs)
+        for tsv in create_tsv(array, step):
+            rowcount += self.load_data_from_tsv(table, tsv, delete=delete, ignore=ignore, **kwargs)
         return rowcount
 
     def load_data(self, table, *args, **kwargs):
         if args:
             arg, = args
             if isinstance(arg, str):
-                return self.load_data_from_csv(table, arg, **kwargs)
+                return self.load_data_from_tsv(table, arg, **kwargs)
             return self.load_data_from_list(table, arg, **kwargs)
         else:
             if replace := kwargs.get('replace'):
@@ -436,10 +436,12 @@ class MySQLConnector(Database):
             except ValueError as e:
                 err = str(e)
                 print(err)
-                if m:= re.search("`load_dataset\('(\S+)', '(\S+)'\)`", err):
-                    assert table.endswith(m[1])
-                    config = m[2]
-                    data = load_dataset(table, config)
+                if m:= re.search(r"Please pick one among the available configs: \['([^']+)', '([^']+)'\]", err):
+                    data = defaultdict(list)
+                    for config in m.groups():
+                        dataset = load_dataset(table, config)
+                        for key in dataset:
+                            data[key] += dataset[key]
                 else:
                     raise e
 
@@ -459,18 +461,19 @@ class MySQLConnector(Database):
                 for obj in data[key]:
                     obj['training'] = training
                     array.append(obj)
-            return self.load_data(table, array, replace=replace)
+            return self.load_data(table.replace('/', ':'), array, replace=replace)
 
-    def load_data_from_csv(self, table, csv, delete=True, **kwargs):
+    def load_data_from_tsv(self, table, tsv, delete=True, **kwargs):
         table = format_table(table)
         start = time.time()
-        csv = csv.replace('\\', '/')
-        if replace := kwargs.get('replace'):
-            sql = 'load data local infile "%s" replace into table %s character set utf8mb4' % (csv, table)
-        elif ignore := kwargs.get('ignore'):
-            sql = 'load data local infile "%s" ignore into table %s character set utf8mb4' % (csv, table)
+        tsv = tsv.replace('\\', '/')
+        if kwargs.get('replace'):
+            duplicate_key_handler = 'replace '
+        elif kwargs.get('ignore'):
+            duplicate_key_handler = 'ignore '
         else:
-            sql = 'load data local infile "%s" into table %s character set utf8mb4' % (csv, table)
+            duplicate_key_handler = ''
+        sql = f'load data local infile "%s" {duplicate_key_handler}into table %s character set utf8mb4' % (tsv, table)
         print('executing: ', sql)
         
         local_infile = True
@@ -497,9 +500,9 @@ class MySQLConnector(Database):
 
         print('time cost =', (time.time() - start))
         if delete:
-            print("os.remove(csv)", csv)
+            print("os.remove(tsv)", tsv)
             try:
-                os.remove(csv)
+                os.remove(tsv)
             except:
                 exit()
 
@@ -573,7 +576,8 @@ class MySQLConnector(Database):
         order = kwargs.pop('order', None)
         dictionary = kwargs.pop('dictionary', None)
         conditions = []
-        
+        quite = kwargs.pop('quite', None)
+
         for field, value in kwargs.items():
             if isinstance(value, (tuple, list, set)):
                 value = ', '.join(std.json_encode(value) for t in value)
@@ -588,7 +592,7 @@ class MySQLConnector(Database):
                         op = 'regexp'
 
                 conditions.append(f"{field} {op} {value}")
-          
+
         if where:
             conditions.append(where)
             
@@ -596,7 +600,8 @@ class MySQLConnector(Database):
             sql += 'where ' + ' and '.join(conditions)
             
         sql_select = sql % star
-        print('sql =', sql_select)
+        if not quite:
+            print('sql =', sql_select)
         if fetch_size:
             if limit is None:
                 [[limit]] = self.query(sql % 'count(*)')
